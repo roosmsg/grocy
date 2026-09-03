@@ -12,8 +12,8 @@ class ReverseProxyAuthMiddleware extends BaseAuthMiddleware
 	{
 		define('GROCY_EXTERNALLY_MANAGED_AUTHENTICATION', true);
 
-		// Try to use regular API Key authentiaction (applies when the reverse proxy is configured to be bypassed for API routes)
-		if ($this->IsApiRoute)
+		// Try to use regular API Key authentication (applies when the reverse proxy is configured to be bypassed for API routes)
+		if ($this->IsApiRoute($request))
 		{
 			$auth = new ApiKeyAuthMiddleware($this->AppContainer, $this->ResponseFactory);
 			$user = $auth->AuthenticateRequest($request);

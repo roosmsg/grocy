@@ -11,17 +11,10 @@ use Slim\Routing\RouteContext;
 
 abstract class BaseAuthMiddleware extends BaseMiddleware
 {
-	protected ?string $RouteName = null;
-	protected bool $IsApiRoute = false;
-
 	public function __invoke(Request $request, RequestHandler $handler): Response
 	{
-		$routeContext = RouteContext::fromRequest($request);
-		$route = $routeContext->getRoute();
-		$this->RouteName = $route->getName();
-		$this->IsApiRoute = string_starts_with($request->getUri()->getPath(), '/api/');
-
-		if ($this->RouteName === 'root' || $this->RouteName === 'login')
+		$routeName = $this->GetRouteName($request);
+		if ($routeName === 'root' || $routeName === 'login')
 		{
 			// Root and Login routes are public/unauthenticated
 
@@ -53,7 +46,7 @@ abstract class BaseAuthMiddleware extends BaseMiddleware
 				define('GROCY_AUTHENTICATED', false);
 				$response = $this->ResponseFactory->createResponse();
 
-				if ($this->IsApiRoute)
+				if ($this->IsApiRoute($request))
 				{
 					return $response->withStatus(401);
 				}
@@ -69,15 +62,67 @@ abstract class BaseAuthMiddleware extends BaseMiddleware
 				define('GROCY_USER_USERNAME', $user->username);
 				define('GROCY_USER_PICTURE_FILE_NAME', $user->picture_file_name);
 
-				return $response = $handler->handle($request);
+				return $handler->handle($request);
 			}
 		}
 	}
 
-	protected static function SetSessionCookie(string $sessionKey)
+	protected static function SetSessionCookie(int $tokenType, string $token)
 	{
-		// Cookie never expires, session validity is up to SessionService
-		setcookie(SessionService::SESSION_COOKIE_NAME, $sessionKey, PHP_INT_SIZE == 4 ? PHP_INT_MAX : PHP_INT_MAX >> 32);
+		switch ($tokenType)
+		{
+			case SessionService::SESSION_TOKEN_TYPE_ACCESS:
+				setcookie(SessionService::SESSION_TOKEN_COOKIE_NAME_ACCESS, $token, [
+					'expires' => 0, // Browser session end
+					'httponly' => true,
+					'samesite' => 'Lax',
+					'path' => '/'
+				]);
+				break;
+
+			case SessionService::SESSION_TOKEN_TYPE_REMEMBER_ME:
+				setcookie(SessionService::SESSION_TOKEN_COOKIE_NAME_REMEMBER_ME, $token, [
+					'expires' => time() + SessionService::SESSION_TOKEN_EXPIRATION_SECONDS_REMEMBER_ME,
+					'httponly' => true,
+					'samesite' => 'Lax',
+					'path' => '/'
+				]);
+				break;
+		}
+	}
+
+	protected static function RemoveSessionCookie(int $tokenType)
+	{
+		switch ($tokenType)
+		{
+			case SessionService::SESSION_TOKEN_TYPE_ACCESS:
+				setcookie(SessionService::SESSION_TOKEN_COOKIE_NAME_ACCESS, '', [
+					'expires' => time() - 3600,
+					'httponly' => true,
+					'samesite' => 'Lax',
+					'path' => '/'
+				]);
+				break;
+
+			case SessionService::SESSION_TOKEN_TYPE_REMEMBER_ME:
+				setcookie(SessionService::SESSION_TOKEN_COOKIE_NAME_REMEMBER_ME, '', [
+					'expires' => time() - 3600,
+					'httponly' => true,
+					'samesite' => 'Lax',
+					'path' => '/'
+				]);
+				break;
+		}
+	}
+
+	protected function GetRouteName(Request $request): ?string
+	{
+		return RouteContext::fromRequest($request)->getRoute()?->getName();
+	}
+
+	protected function IsApiRoute(Request $request): bool
+	{
+		return string_starts_with(RouteContext::fromRequest($request)->getRoute()->getPattern(), '/api/');
 	}
 
 	/**

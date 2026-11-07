@@ -400,26 +400,24 @@ class StockService extends BaseService
 
 		if ($transactionType === self::TRANSACTION_TYPE_CONSUME || $transactionType === self::TRANSACTION_TYPE_INVENTORY_CORRECTION)
 		{
-			if ($locationId === null)
-			{
-				// Consume from any location
-				$potentialStockEntries = $this->GetProductStockEntries($productId, false, $allowSubproductSubstitution);
-			}
-			else
-			{
-				// Consume only from the supplied location
-				$potentialStockEntries = $this->GetProductStockEntriesForLocation($productId, $locationId, false, $allowSubproductSubstitution);
-			}
+			$potentialStockEntries = $this->GetProductStockEntries($productId, $locationId, false, $allowSubproductSubstitution);
 
 			if ($specificStockEntryId !== 'default')
 			{
 				$potentialStockEntries = FindAllObjectsInArrayByPropertyValue($potentialStockEntries, 'stock_id', $specificStockEntryId);
 			}
 
-			$productStockAmount = $productDetails->stock_amount_aggregated;
-			if (round($amount, 2) > round($productStockAmount, 2))
+			if ($locationId === null)
 			{
-				throw new \Exception('Amount to be consumed cannot be > current stock amount (if supplied, at the desired location)');
+				$productStockAmountTotal = $this->DB->stock()->where('product_id = :1', $productId)->sum('amount');
+			}
+			else
+			{
+				$productStockAmountTotal = $this->DB->stock()->where('product_id = :1 AND location_id = :2', $productId, $locationId)->sum('amount');
+			}
+			if ($amount > $productStockAmountTotal)
+			{
+				throw new \Exception('Amount to be consumed cannot be > current unopened stock amount (if supplied, at the desired location)');
 			}
 
 			if ($transactionId === null)
@@ -865,7 +863,7 @@ class StockService extends BaseService
 		return $returnData;
 	}
 
-	public function GetProductStockEntries(int $productId, $excludeOpened = false, $allowSubproductSubstitution = false)
+	public function GetProductStockEntries(int $productId, $locationId = null, $excludeOpened = false, $allowSubproductSubstitution = false)
 	{
 		$sqlWhereProductId = 'product_id = ' . $productId;
 		if ($allowSubproductSubstitution)
@@ -879,7 +877,13 @@ class StockService extends BaseService
 			$sqlWhereAndOpen = 'AND open = 0';
 		}
 
-		return $this->DB->stock_next_use()->where($sqlWhereProductId . ' ' . $sqlWhereAndOpen);
+		$sqlWhereAndLocationId = '';
+		if ($locationId !== null)
+		{
+			$sqlWhereAndLocationId = 'AND location_id = ' . $locationId;
+		}
+
+		return $this->DB->stock_next_use()->where($sqlWhereProductId . ' ' . $sqlWhereAndOpen . ' ' . $sqlWhereAndLocationId);
 	}
 
 	public function GetLocationStockEntries($locationId)
@@ -890,12 +894,6 @@ class StockService extends BaseService
 		}
 
 		return $this->DB->stock()->where('location_id', $locationId);
-	}
-
-	public function GetProductStockEntriesForLocation($productId, $locationId, $excludeOpened = false, $allowSubproductSubstitution = false)
-	{
-		$stockEntries = $this->GetProductStockEntries($productId, $excludeOpened, $allowSubproductSubstitution);
-		return FindAllObjectsInArrayByPropertyValue($stockEntries, 'location_id', $locationId);
 	}
 
 	public function GetProductStockLocations(int $productId, $allowSubproductSubstitution = false)
@@ -978,7 +976,7 @@ class StockService extends BaseService
 		return null;
 	}
 
-	public function OpenProduct(int $productId, float $amount, $specificStockEntryId = 'default', &$transactionId = null, $allowSubproductSubstitution = false)
+	public function OpenProduct(int $productId, float $amount, $locationId = null, $specificStockEntryId = 'default', &$transactionId = null, $allowSubproductSubstitution = false)
 	{
 		if (!$this->ProductExists($productId))
 		{
@@ -993,17 +991,24 @@ class StockService extends BaseService
 		}
 
 		$productDetails = (object)$this->GetProductDetails($productId);
-		$productStockAmountUnopened = $productDetails->stock_amount_aggregated - $productDetails->stock_amount_opened_aggregated;
-		$potentialStockEntries = $this->GetProductStockEntries($productId, true, $allowSubproductSubstitution);
+		$potentialStockEntries = $this->GetProductStockEntries($productId, $locationId, true, $allowSubproductSubstitution);
 
 		if ($product->enable_tare_weight_handling == 1)
 		{
 			throw new \Exception('Opening tare weight handling enabled products is not supported');
 		}
 
+		if ($locationId === null)
+		{
+			$productStockAmountUnopened = $this->DB->stock()->where('product_id = :1 AND open = 0', $productId)->sum('amount');
+		}
+		else
+		{
+			$productStockAmountUnopened = $this->DB->stock()->where('product_id = :1 AND open = 0 AND location_id = :2', $productId, $locationId)->sum('amount');
+		}
 		if ($amount > $productStockAmountUnopened)
 		{
-			throw new \Exception('Amount to be opened cannot be > current unopened stock amount');
+			throw new \Exception('Amount to be opened cannot be > current unopened stock amount (if supplied, at the desired location)');
 		}
 
 		if ($specificStockEntryId !== 'default')
@@ -1290,16 +1295,10 @@ class StockService extends BaseService
 		{
 			// Hard fail for now, as we not yet support transferring tare weight enabled products
 			throw new \Exception('Transferring tare weight enabled products is not yet possible');
-			if ($amount < $productDetails->product->tare_weight)
-			{
-				throw new \Exception('The amount cannot be lower than the defined tare weight');
-			}
-
-			$amount = abs($amount - $productDetails->stock_amount - $productDetails->product->tare_weight);
 		}
 
 		$productStockAmountAtFromLocation = $this->DB->stock()->where('product_id = :1 AND location_id = :2', $productId, $locationIdFrom)->sum('amount');
-		$potentialStockEntriesAtFromLocation = $this->GetProductStockEntriesForLocation($productId, $locationIdFrom);
+		$potentialStockEntriesAtFromLocation = $this->GetProductStockEntries($productId, $locationIdFrom);
 
 		if ($amount > $productStockAmountAtFromLocation)
 		{
@@ -1728,6 +1727,54 @@ class StockService extends BaseService
 			throw $ex;
 		}
 		DatabaseService::GetInstance()->GetDbConnectionRaw()->commit();
+	}
+
+	public function CopyProduct(int $productId)
+	{
+		if (!$this->ProductExists($productId))
+		{
+			throw new \Exception('Product does not exist');
+		}
+
+		$newName = LocalizationService::GetInstance()->__t('Copy of %s', $this->DB->products($productId)->name);
+
+		DatabaseService::GetInstance()->ExecuteDbStatement(
+			'INSERT INTO products
+				(name, description, product_group_id, active, location_id, shopping_location_id, qu_id_purchase, qu_id_stock, min_stock_amount,
+				default_best_before_days, default_best_before_days_after_open, default_best_before_days_after_freezing,
+				default_best_before_days_after_thawing, picture_file_name, enable_tare_weight_handling, tare_weight, not_check_stock_fulfillment_for_recipes,
+				parent_product_id, calories, cumulate_min_stock_amount_of_sub_products, due_type, quick_consume_amount, hide_on_stock_overview, default_stock_label_type,
+				should_not_be_frozen, treat_opened_as_out_of_stock, no_own_stock, default_consume_location_id, move_on_open, row_created_timestamp, qu_id_consume,
+				auto_reprint_stock_label, quick_open_amount, qu_id_price, disable_open, default_purchase_price_type)
+			SELECT :new_name, description, product_group_id, active, location_id, shopping_location_id, qu_id_purchase, qu_id_stock, min_stock_amount,
+				default_best_before_days, default_best_before_days_after_open, default_best_before_days_after_freezing,
+				default_best_before_days_after_thawing, picture_file_name, enable_tare_weight_handling, tare_weight, not_check_stock_fulfillment_for_recipes,
+				parent_product_id, calories, cumulate_min_stock_amount_of_sub_products, due_type, quick_consume_amount, hide_on_stock_overview, default_stock_label_type,
+				should_not_be_frozen, treat_opened_as_out_of_stock, no_own_stock, default_consume_location_id, move_on_open, row_created_timestamp, qu_id_consume,
+				auto_reprint_stock_label, quick_open_amount, qu_id_price, disable_open, default_purchase_price_type
+			FROM products
+			WHERE id = :product_id',
+			['product_id' => $productId, 'new_name' => $newName]
+		);
+		$lastInsertId = $this->DB->lastInsertId();
+
+		DatabaseService::GetInstance()->ExecuteDbStatement(
+			'INSERT INTO quantity_unit_conversions
+				(product_id, from_qu_id, to_qu_id, factor)
+			SELECT :last_insert_id, from_qu_id, to_qu_id, factor
+			FROM quantity_unit_conversions q
+			WHERE q.product_id = :product_id
+				AND q.id = (
+					SELECT MIN(q2.id)
+					FROM quantity_unit_conversions q2
+					WHERE q2.product_id = q.product_id
+						AND MIN(q2.from_qu_id, q2.to_qu_id) = MIN(q.from_qu_id, q.to_qu_id)
+						AND MAX(q2.from_qu_id, q2.to_qu_id) = MAX(q.from_qu_id, q.to_qu_id)
+					)', // The corresponding inverse conversion is automatically created by a trigger
+			['product_id' => $productId, 'last_insert_id' => $lastInsertId]
+		);
+
+		return $lastInsertId;
 	}
 
 	public function CompactStockEntries($productId = null)

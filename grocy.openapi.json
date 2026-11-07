@@ -2255,6 +2255,10 @@
 									"allow_subproduct_substitution": {
 										"type": "boolean",
 										"description": "`true` when any in stock sub product should be used when the given product is a parent product and currently not in stock"
+									},
+									"location_id": {
+										"type": "integer",
+										"description": "A valid location id (if supplied, only stock at the given location is considered, if ommitted, stock of any location is considered)"
 									}
 								},
 								"example": {
@@ -2322,6 +2326,53 @@
 					},
 					"400": {
 						"description": "The operation was not successful (possible errors are: Not existing product, error on WebHook execution)",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Error400"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/stock/products/{productId}/copy": {
+			"post": {
+				"summary": "Copies a product",
+				"tags": [
+					"Stock"
+				],
+				"parameters": [
+					{
+						"in": "path",
+						"name": "productId",
+						"required": true,
+						"description": "A valid product id of the product to copy",
+						"schema": {
+							"type": "integer"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "The operation was successful",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"created_object_id": {
+											"type": "integer",
+											"description": "The id of the created product"
+										}
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "The operation was not successful (possible errors are: Invalid product id)",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -2552,7 +2603,7 @@
 									},
 									"allow_subproduct_substitution": {
 										"type": "boolean",
-										"description": "`rue` when any in stock sub product should be used when the given product is a parent product and currently not in stock"
+										"description": "`true` when any in stock sub product should be used when the given product is a parent product and currently not in stock"
 									}
 								},
 								"example": {
@@ -2775,7 +2826,11 @@
 									},
 									"allow_subproduct_substitution": {
 										"type": "boolean",
-										"description": "`rue` when any in stock sub product should be used when the given product is a parent product and currently not in stock"
+										"description": "`true` when any in stock sub product should be used when the given product is a parent product and currently not in stock"
+									},
+									"location_id": {
+										"type": "integer",
+										"description": "A valid location id (if supplied, only stock at the given location is considered, if ommitted, stock of any location is considered)"
 									}
 								},
 								"example": {

@@ -555,6 +555,12 @@ class StockApiController extends BaseApiController
 				throw new \Exception('An amount is required');
 			}
 
+			$locationId = null;
+			if (array_key_exists('location_id', $requestBody) && !empty($requestBody['location_id']) && is_numeric($requestBody['location_id']))
+			{
+				$locationId = $requestBody['location_id'];
+			}
+
 			$specificStockEntryId = 'default';
 			if (array_key_exists('stock_entry_id', $requestBody) && !empty($requestBody['stock_entry_id']))
 			{
@@ -568,7 +574,7 @@ class StockApiController extends BaseApiController
 			}
 
 			$transactionId = null;
-			$transactionId = StockService::GetInstance()->OpenProduct($args['productId'], $requestBody['amount'], $specificStockEntryId, $transactionId, $allowSubproductSubstitution);
+			$transactionId = StockService::GetInstance()->OpenProduct($args['productId'], $requestBody['amount'], $locationId, $specificStockEntryId, $transactionId, $allowSubproductSubstitution);
 			$args['transactionId'] = $transactionId;
 			return $this->StockTransactions($request, $response, $args);
 		}
@@ -648,7 +654,7 @@ class StockApiController extends BaseApiController
 			$allowSubproductSubstitution = true;
 		}
 
-		return $this->FilteredApiResponse($response, StockService::GetInstance()->GetProductStockEntries($args['productId'], false, $allowSubproductSubstitution), $request->getQueryParams());
+		return $this->FilteredApiResponse($response, StockService::GetInstance()->GetProductStockEntries($args['productId'], null, false, $allowSubproductSubstitution), $request->getQueryParams());
 	}
 
 	public function LocationStockEntries(Request $request, Response $response, array $args)
@@ -920,6 +926,27 @@ class StockApiController extends BaseApiController
 
 			$this->ApiResponse($response, StockService::GetInstance()->MergeProducts($args['productIdToKeep'], $args['productIdToRemove']));
 			return $this->EmptyApiResponse($response);
+		}
+		catch (\Exception $ex)
+		{
+			return $this->GenericErrorResponse($response, $ex->getMessage());
+		}
+	}
+
+	public function CopyProduct(Request $request, Response $response, array $args)
+	{
+		User::CheckPermission($request, User::PERMISSION_STOCK_EDIT);
+
+		try
+		{
+			if (filter_var($args['productId'], FILTER_VALIDATE_INT) === false)
+			{
+				throw new \Exception('Provided {productId} is not a valid integer');
+			}
+
+			return $this->ApiResponse($response, [
+				'created_object_id' => StockService::GetInstance()->CopyProduct($args['productId'])
+			]);
 		}
 		catch (\Exception $ex)
 		{

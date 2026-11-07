@@ -30,7 +30,7 @@
 
 ### Calendar
 
-- Fixed that the iCal export was broken (any shared `https://<Grocy>/api/calendar/ical?secret=xxx`-link always returned `401 Unauthorized`)
+- xxx
 
 ### Tasks
 
@@ -50,8 +50,8 @@
 
 ### General
 
-- Fixed that it wasn't possible to log in using passwords containing non-latin characters
+- xxx
 
 ### API
 
-- Fixed that API Key Authentication did not work when running Grocy in a subdirectory
+- The API endpoints `/stock/products/{productId}/open` and `/stock/products/by-barcode/{barcode}/open` now support a new (optional) `location_id` request body parameter (to only open stock entries at that location)
